@@ -15,7 +15,7 @@ func NewReducer() ports.ColorReducer {
 	return &Reducer{}
 }
 
-func (*Reducer) SampleColors(img image.Image, n int) []color.Color {
+func (r *Reducer) SampleColors(img image.Image, n int) []color.Color {
 	colors := []color.Color{}
 	bounds := img.Bounds()
 	colorMap := make(map[color.Color]int)
@@ -36,6 +36,7 @@ func (*Reducer) SampleColors(img image.Image, n int) []color.Color {
 	slice.Sort(cls, func(a, b KV) bool {
 		return a.V < b.V
 	})
+	_ = r.SampleColors2(img, n)
 	for i, kv := range cls {
 		if i > n {
 			return colors
@@ -43,6 +44,61 @@ func (*Reducer) SampleColors(img image.Image, n int) []color.Color {
 		colors = append(colors, kv.K)
 	}
 	return colors
+}
+
+func (*Reducer) SampleColors2(img image.Image, n int) []color.Color {
+	bounds := img.Bounds()
+	rgbCube := make([][][]int, 256)
+	for i := range rgbCube {
+		rgbCube[i] = make([][]int, 256)
+		for j := range rgbCube[i] {
+			rgbCube[i][j] = make([]int, 256)
+		}
+	}
+	// Get all colors from image
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			color := img.At(x, y)
+			rC, gC, bC, _ := color.RGBA()
+			r := rC >> 8
+			g := gC >> 8
+			b := bC >> 8
+			rgbCube[r][g][b]++
+		}
+	}
+	// Get box bounds
+	var minR, maxR, minG, maxG, minB, maxB int
+	var totalColors int
+	for r, plane := range rgbCube {
+		for g, line := range plane {
+			for b, n := range line {
+				if n > 0 {
+					totalColors++
+					minR = min(r, minR)
+					maxR = max(r, maxR)
+					minG = min(g, minG)
+					maxG = max(g, maxG)
+					minB = min(b, minB)
+					maxB = max(b, maxB)
+				}
+			}
+		}
+	}
+	// Loop through the cube by creating cube boundaries
+	// that get progressively smaller, adding in the colors
+	// that we come across. Giving priority to more popular colors.
+	for r := minR; r <= maxR; r++ {
+		for g := minG; r <= maxG; g++ {
+			for b := minB; b <= maxB; b++ {
+				i := rgbCube[r][g][b]
+				if i > 0 {
+					// Do something
+				}
+			}
+		}
+	}
+	// Create box that closes in around points.
+	return nil
 }
 
 func (*Reducer) ReduceImage(img image.Image, colors []color.Color) image.Image {
