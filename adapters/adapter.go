@@ -1,8 +1,10 @@
 package adapters
 
 import (
+	"fmt"
 	"image"
 	"image/color"
+	"slices"
 
 	"github.com/linuxfreak003/color-reducer/ports"
 	"github.com/linuxfreak003/util/maps"
@@ -16,6 +18,10 @@ func NewReducer() ports.ColorReducer {
 }
 
 func (r *Reducer) SampleColors(img image.Image, n int) []color.Color {
+	return r.SampleColorsContrast(img, n)
+}
+
+func (r *Reducer) SampleColorsPopular(img image.Image, n int) []color.Color {
 	colors := []color.Color{}
 	bounds := img.Bounds()
 	colorMap := make(map[color.Color]int)
@@ -36,7 +42,6 @@ func (r *Reducer) SampleColors(img image.Image, n int) []color.Color {
 	slice.Sort(cls, func(a, b KV) bool {
 		return a.V < b.V
 	})
-	_ = r.SampleColors2(img, n)
 	for i, kv := range cls {
 		if i > n {
 			return colors
@@ -66,7 +71,7 @@ func (*Reducer) SampleColors2(img image.Image, n int) []color.Color {
 			rgbCube[r][g][b]++
 		}
 	}
-	// Get box bounds
+	// Get point averages
 	var minR, maxR, minG, maxG, minB, maxB int
 	var totalColors int
 	for r, plane := range rgbCube {
@@ -97,8 +102,83 @@ func (*Reducer) SampleColors2(img image.Image, n int) []color.Color {
 			}
 		}
 	}
-	// Create box that closes in around points.
+	// Create box that closes in around points
 	return nil
+}
+
+type ColorFrequency struct {
+	color.Color
+	Freq int
+}
+
+func (*Reducer) SampleColorsContrast(img image.Image, n int) []color.Color {
+	bounds := img.Bounds()
+	// Get average point.
+	colorMap := make(map[color.Color]int)
+	var rTotal, gTotal, bTotal, aTotal, nTotal uint32
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			clr := img.At(x, y)
+			r, g, b, a := clr.RGBA()
+			c := color.RGBA{
+				R: uint8(r),
+				G: uint8(g),
+				B: uint8(b),
+				A: uint8(a),
+			}
+			if _, seen := colorMap[c]; !seen {
+				colorMap[c]++
+				rTotal += r
+				gTotal += g
+				bTotal += b
+				nTotal++
+			}
+		}
+	}
+	colors := make([]ColorFrequency, 0, len(colorMap))
+	for c, f := range colorMap {
+		colors = append(colors, ColorFrequency{c, f})
+	}
+	mean := color.RGBA{
+		R: uint8((rTotal / nTotal)),
+		G: uint8((gTotal / nTotal)),
+		B: uint8((bTotal / nTotal)),
+		A: uint8((aTotal / nTotal)),
+	}
+	r, g, b, a := mean.RGBA()
+	fmt.Printf("MEAN: R: %d, G: %d, B: %d, A: %d\n", r, g, b, a)
+
+	// Sort by deviation from mean
+	slices.SortFunc(colors, func(a, b ColorFrequency) int {
+		return calculateDistance(b, mean)*b.Freq - calculateDistance(a, mean)*a.Freq
+	})
+	colors = colors[:n]
+	out := make([]color.Color, 0, n)
+	for _, c := range colors {
+		r, g, b, a := c.RGBA()
+		fmt.Printf("R: %d, G: %d, B: %d, A: %d\n", r, g, b, a)
+		out = append(out, c)
+	}
+	return out
+}
+func calculateDistance(x, y color.Color) int {
+	r1u, g1u, b1u, a1u := x.RGBA()
+	r2u, g2u, b2u, a2u := y.RGBA()
+	r1, g1, b1, a1 := int(r1u), int(g1u), int(b1u), int(a1u)
+	r2, g2, b2, a2 := int(r2u), int(g2u), int(b2u), int(a2u)
+	r := r2 - r1
+	g := g2 - g1
+	b := b2 - b1
+	a := a2 - a1
+	d := r*r + g*g + b*b + a*a
+	return d
+}
+
+func Abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 func (*Reducer) ReduceImage(img image.Image, colors []color.Color) image.Image {
